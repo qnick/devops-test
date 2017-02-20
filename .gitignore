@@ -1,0 +1,6 @@
+.kitchen
+*.pyc
+*.xlog
+*.snap
+.vagrant
+*.retry

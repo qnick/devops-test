@@ -1,0 +1,37 @@
+version: '2'
+services:
+  # Instances to run cloud containers
+  consul1:
+    image: consul
+    ports:
+      - "8501:8500"
+    tmpfs: /tmp/consul
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONSUL_LOCAL_CONFIG: |
+        {
+          "services": [{
+            "name": "docker",
+            "address": "unix://var/run/docker.sock",
+            "tags": ["lb_group=primary", "im"]
+          }]
+        }
+      DOCKER_HOST: unix:///var/run/docker.sock
+    command: gosu root consul agent -data-dir=/consul/data -config-dir=/consul/config -bind=0.0.0.0 -server -bootstrap-expect=1 -ui -client 0.0.0.0
+
+  api:
+    build: .
+    links:
+      - consul1
+    ports:
+      - "5061:5061"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      CONSUL_HOST: "consul1"
+      LISTEN_PORT: 5061
+      IPALLOC_RANGE: 172.55.128.0/25
+      GATEWAY_IP: 172.55.128.1
+      DOCKER_NETWORK: mynet
+      CREATE_NETWORK_AUTOMATICALLY: "true"

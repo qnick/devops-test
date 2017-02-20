@@ -1,0 +1,636 @@
+#!/usr/bin/env python3
+
+""" Generate certificates for Docker and Consul TLS auth.
+
+This module allows you to maintain a simple CA and issue TLS
+certificates for both Consul and Docker. In case of Tarantool
+Cloud, Docker and Consul are two primary building blocks that
+are exposed to internal network and as such can't usually be
+left unsecured.
+
+Dependencies: command line 'openssl' tool.
+
+There are 2 different use cases: command line and Python API.
+
+Command Line:
+  Used by tools like puppet or other provisioners to prepare
+  physical machines.
+
+  Usage:
+
+    python ca.py -d DIR {ca, client, server}
+
+      -d DIR, --dir DIR   directory to store certificates (default is .)
+
+    python ca.py ca
+
+      Generate CA key and certificate if it doesn't exist
+      Creates ca.key and ca.crt
+
+    python ca.py client
+
+      Generate client key and certificate if it doesn't exist
+      Creates client.key and client.crt
+
+    python ca.py server <fqdn> [altname1, altname2]
+
+      Generate server key and certificate if it doesn't exist
+      Creates servers/<fqdn>/server.key and servers/<fqdn>/server.crt
+
+  Note:
+
+    By default, ca.py will print nothing, unless you pass --key or --cert
+    as additional options, in which case it will output either the key
+    or cert to standard output.
+
+    Also note, that ca.py is 'idempotent' and will not generate anything
+    if the requested entity already exists.
+
+Python API:
+  Used by python-based provisioners (either ansible or hand-rolled).
+  See function docstrings below. The usage should be pretty obvious.
+"""
+from __future__ import print_function
+
+import subprocess
+import shlex
+import os
+import sys
+import uuid
+import socket
+import argparse
+import logging
+
+
+def write_file(filename, content):
+    """Writes string to a file"""
+    with open(filename, 'w+') as desc:
+        desc.write(content)
+
+
+def read_file(filename):
+    """Reads a file and returns its content as string"""
+    with open(filename) as desc:
+        return desc.read()
+
+
+def check_output(*popenargs, **kwargs):
+    """Replacement to standard subprocess.check_output that captures stderr
+
+    If a command fails, there is no way to get the stderr from
+    CalledProcessError exception. And many applications do emit
+    importand information to the stderr.
+
+    This implementation behaves exactly like subprocess.check_output from
+    python 2.7, but adds 'stderr' property to CalledProcessError.
+    """
+    if 'stdout' in kwargs:
+        raise ValueError('stdout argument not allowed, it will be overridden.')
+    if 'stderr' in kwargs:
+        raise ValueError('stderr argument not allowed, it will be overridden.')
+
+    process = subprocess.Popen(stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               *popenargs, **kwargs)
+    res = process.communicate()
+    output = res[0]
+    error = res[1]
+    retcode = process.poll()
+    if retcode:
+        cmd = kwargs.get("args")
+        if cmd is None:
+            cmd = popenargs[0]
+        ex = subprocess.CalledProcessError(retcode, cmd)
+        ex.output = output
+        ex.stderr = error
+        raise ex
+    return output
+
+
+def is_openssl_functioning():
+    cmd = 'openssl version'
+    try:
+        check_output(shlex.split(cmd))
+        return True
+    except subprocess.CalledProcessError:
+        return False
+    except OSError:
+        return False
+
+
+def is_key_encrypted(key):
+    """Returns true if the private key is password-protected"""
+    for line in key:
+        if 'Proc-Type:' in line and 'ENCRYPTED' in line:
+            return True
+    return False
+
+
+def is_ip_addr(addr_str):
+    """Returns True if addr_str is a valid ipv4 or ipv6 address"""
+
+    try:
+        socket.inet_pton(socket.AF_INET, addr_str)
+        return True
+    except socket.error:
+        pass
+
+    try:
+        socket.inet_pton(socket.AF_INET6, addr_str)
+        return True
+    except socket.error:
+        pass
+
+    return False
+
+
+def generate_ca_private_key(password):
+    """Generates a private key and returns it as string
+
+    password -- if specified, protect generated key with this password
+    """
+    password_in_fd, password_out_fd = os.pipe()
+    try:
+        os.write(password_out_fd,
+                 password.encode('utf-8') if password is not None else b'')
+        os.close(password_out_fd)
+
+        if password:
+            cmd = 'openssl genrsa -aes256 -passout fd:%d 4096' % \
+                  password_in_fd
+        else:
+            cmd = 'openssl genrsa 4096'
+
+        logging.info(cmd)
+
+        args = {}
+        if sys.version_info >= (3, 2):
+            args = {'pass_fds': (password_in_fd,)}
+
+        out = check_output(shlex.split(cmd), **args)
+    finally:
+        os.close(password_in_fd)
+
+    return out.decode('utf-8')
+
+
+def generate_ca_certificate(private_key, password, common_name):
+    """Generates certificate for CA and returns it as string
+
+    private_key -- private key generated by generate_ca_private_key()
+    password -- unlock private key with this password (can be None)
+    common_name -- this common name will be set in the resulting certificate
+    """
+
+    password_in_fd, password_out_fd = os.pipe()
+    key_in_fd, key_out_fd = os.pipe()
+
+    try:
+        os.write(password_out_fd,
+                 password.encode('utf-8') if password is not None else b'')
+        os.close(password_out_fd)
+        os.write(key_out_fd, private_key.encode('utf-8'))
+        os.close(key_out_fd)
+
+        if password is not None:
+            cmd = ('openssl req -new -x509 -days 3650 -key /dev/fd/%s ' +
+                   '-sha256 -passin fd:%d -subj "/CN=%s"') % \
+                   (key_in_fd, password_in_fd, common_name)
+        else:
+            cmd = ('openssl req -new -x509 -days 3650 -key /dev/fd/%s ' +
+                   '-sha256 -subj "/CN=%s"') % \
+                   (key_in_fd, common_name)
+
+        logging.info(cmd)
+
+        args = {}
+        if sys.version_info >= (3, 2):
+            args = {'pass_fds': (password_in_fd, key_in_fd)}
+
+        out = check_output(shlex.split(cmd), **args)
+    finally:
+        os.close(password_in_fd)
+        os.close(key_in_fd)
+
+    return out.decode('utf-8')
+
+
+def generate_client_key():
+    """Generates a private key and returns it as string"""
+
+    cmd = 'openssl genrsa 4096'
+
+    logging.info(cmd)
+
+    out = check_output(shlex.split(cmd))
+
+    return out.decode('utf-8')
+
+
+def generate_client_csr(client_key):
+    """Generates signing request for client and returns it as string
+
+    client_key -- private key generated by generate_client_key()
+    """
+
+    key_in_fd, key_out_fd = os.pipe()
+
+    try:
+        os.write(key_out_fd, client_key.encode('utf-8'))
+        os.close(key_out_fd)
+
+        cmd = 'openssl req -subj "/CN=client" -new -key /dev/fd/%d' % key_in_fd
+
+        logging.info(cmd)
+
+        args = {}
+        if sys.version_info >= (3, 2):
+            args = {'pass_fds': (key_in_fd,)}
+
+        out = check_output(shlex.split(cmd), **args)
+    finally:
+        os.close(key_in_fd)
+
+    return out.decode('utf-8')
+
+
+def sign_client_cert(ca_cert, ca_key, password, client_csr):
+    """Signs client certificate and returns it as string
+
+    ca_cert -- CA certificate generated by generate_ca_certificate()
+    ca_key -- private key generated by generate_ca_private_key()
+    password -- unlock private key with this password (can be None)
+    client_csr -- client CSR generated by generate_client_csr()
+    """
+
+    extfile = 'extendedKeyUsage = clientAuth\n'
+
+    extfile_in_fd, extfile_out_fd = os.pipe()
+    ca_cert_in_fd, ca_cert_out_fd = os.pipe()
+    ca_key_in_fd, ca_key_out_fd = os.pipe()
+    password_in_fd, password_out_fd = os.pipe()
+    csr_in_fd, csr_out_fd = os.pipe()
+
+    try:
+        os.write(extfile_out_fd, extfile.encode('utf-8'))
+        os.write(ca_cert_out_fd, ca_cert.encode('utf-8'))
+        os.write(ca_key_out_fd, ca_key.encode('utf-8'))
+        os.write(password_out_fd,
+                 password.encode('utf-8') if password is not None else b'')
+        os.write(csr_out_fd, client_csr.encode('utf-8'))
+
+        os.close(extfile_out_fd)
+        os.close(ca_cert_out_fd)
+        os.close(ca_key_out_fd)
+        os.close(password_out_fd)
+        os.close(csr_out_fd)
+
+        serial = uuid.uuid4().int
+
+        if password is not None:
+            cmd = ('openssl x509 -req -days 3650 -sha256 -in /dev/fd/%d ' +
+                   '-passin fd:%d -CA /dev/fd/%d -CAkey /dev/fd/%d ' +
+                   '-CAcreateserial -extfile /dev/fd/%d -set_serial %d') % \
+                   (csr_in_fd, password_in_fd, ca_cert_in_fd, ca_key_in_fd,
+                    extfile_in_fd, serial)
+        else:
+            cmd = ('openssl x509 -req -days 3650 -sha256 -in /dev/fd/%d ' +
+                   '-CA /dev/fd/%d -CAkey /dev/fd/%d ' +
+                   '-CAcreateserial -extfile /dev/fd/%d -set_serial %d') % \
+                   (csr_in_fd, ca_cert_in_fd, ca_key_in_fd,
+                    extfile_in_fd, serial)
+
+        logging.info(cmd)
+
+        args = {}
+        if sys.version_info >= (3, 2):
+            args = {'pass_fds': (extfile_in_fd, ca_cert_in_fd, ca_key_in_fd,
+                                 password_in_fd, csr_in_fd)}
+
+        out = check_output(shlex.split(cmd), **args)
+    finally:
+        os.close(extfile_in_fd)
+        os.close(ca_cert_in_fd)
+        os.close(ca_key_in_fd)
+        os.close(password_in_fd)
+        os.close(csr_in_fd)
+
+    return out.decode('utf-8')
+
+
+def generate_server_key():
+    """Generates a private key and returns it as string"""
+    cmd = 'openssl genrsa 4096'
+
+    logging.info(cmd)
+
+    out = check_output(shlex.split(cmd))
+
+    return out.decode('utf-8')
+
+
+def generate_server_csr(server_key, fqdn):
+    """Generates signing request for server and returns it as string
+
+    server_key -- private key generated by generate_server_key()
+    fqdn -- server fully qualified domain name
+    """
+
+    key_in_fd, key_out_fd = os.pipe()
+
+    try:
+        os.write(key_out_fd, server_key.encode('utf-8'))
+        os.close(key_out_fd)
+
+        cmd = 'openssl req -subj "/CN=%s" -new -key /dev/fd/%d' % \
+            (fqdn, key_in_fd)
+
+        logging.info(cmd)
+
+        args = {}
+        if sys.version_info >= (3, 2):
+            args = {'pass_fds': (key_in_fd,)}
+
+        out = check_output(shlex.split(cmd), **args)
+    finally:
+        os.close(key_in_fd)
+
+    return out.decode('utf-8')
+
+
+def sign_server_cert(ca_cert, ca_key, password, client_csr, altnames=()):
+    """Signs server certificate and returns it as string
+
+    ca_cert -- CA certificate generated by generate_ca_certificate()
+    ca_key -- private key generated by generate_ca_private_key()
+    password -- unlock private key with this password (can be None)
+    server_csr -- server CSR generated by generate_server_csr()
+    altnames -- list of additional hostnames or IP addresses of the server
+    """
+
+    extfile = ''
+
+    altname_list = []
+
+    for altname in altnames:
+        if is_ip_addr(altname):
+            altname_list.append('IP:' + altname)
+        else:
+            altname_list.append('DNS:' + altname)
+
+    extfile = ''
+    if altnames:
+        extfile += 'subjectAltName = %s\n' % (', '.join(altname_list))
+    extfile += 'extendedKeyUsage = serverAuth, clientAuth\n'
+
+    extfile_in_fd, extfile_out_fd = os.pipe()
+    ca_cert_in_fd, ca_cert_out_fd = os.pipe()
+    ca_key_in_fd, ca_key_out_fd = os.pipe()
+    password_in_fd, password_out_fd = os.pipe()
+    csr_in_fd, csr_out_fd = os.pipe()
+
+    try:
+        os.write(extfile_out_fd, extfile.encode('utf-8'))
+        os.write(ca_cert_out_fd, ca_cert.encode('utf-8'))
+        os.write(ca_key_out_fd, ca_key.encode('utf-8'))
+        os.write(password_out_fd,
+                 password.encode('utf-8') if password is not None else b'')
+        os.write(csr_out_fd, client_csr.encode('utf-8'))
+
+        os.close(extfile_out_fd)
+        os.close(ca_cert_out_fd)
+        os.close(ca_key_out_fd)
+        os.close(password_out_fd)
+        os.close(csr_out_fd)
+
+        serial = uuid.uuid4().int
+
+        if password is not None:
+            cmd = ('openssl x509 -req -days 3650 -sha256 -in /dev/fd/%d ' +
+                   '-passin fd:%d -CA /dev/fd/%d -CAkey /dev/fd/%d ' +
+                   '-CAcreateserial -extfile /dev/fd/%d -set_serial %d') % \
+                   (csr_in_fd, password_in_fd, ca_cert_in_fd, ca_key_in_fd,
+                    extfile_in_fd, serial)
+        else:
+            cmd = ('openssl x509 -req -days 3650 -sha256 -in /dev/fd/%d ' +
+                   '-CA /dev/fd/%d -CAkey /dev/fd/%d ' +
+                   '-CAcreateserial -extfile /dev/fd/%d -set_serial %d') % \
+                   (csr_in_fd, ca_cert_in_fd, ca_key_in_fd,
+                    extfile_in_fd, serial)
+
+        logging.info(cmd)
+
+        args = {}
+        if sys.version_info >= (3, 2):
+            args = {'pass_fds': (extfile_in_fd, ca_cert_in_fd, ca_key_in_fd,
+                                 password_in_fd, csr_in_fd)}
+
+        out = check_output(shlex.split(cmd), **args)
+    finally:
+        os.close(extfile_in_fd)
+        os.close(ca_cert_in_fd)
+        os.close(ca_key_in_fd)
+        os.close(password_in_fd)
+        os.close(csr_in_fd)
+
+    return out.decode('utf-8')
+
+
+def main():
+    """CLI entry point"""
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-d', '--dir',
+                        help='directory to store certificates (default is .)')
+
+    subparsers = parser.add_subparsers(title="commands", dest="command")
+    subparsers.required = True
+
+    # CA parser
+    ca_parser = subparsers.add_parser('ca', help='generate CA certificate')
+    ca_parser.add_argument('-f', '--force', action='store_true',
+                           default=False, help='overwrite if exists')
+    ca_parser.add_argument('-p', '--password', help='password for CA key')
+    ca_parser.add_argument('common_name',
+                           help='TLS common name (default is tarantool_cloud)',
+                           default='tarantool_cloud', nargs='?')
+    ca_parser.add_argument('-k', '--key',
+                           action='store_true',
+                           help='print generated key')
+    ca_parser.add_argument('-c', '--cert',
+                           action='store_true',
+                           help='print generated cert')
+
+    # Client parser
+    client_parser = subparsers.add_parser('client',
+                                          help='generate client certificate')
+    client_parser.add_argument('-f', '--force', action='store_true',
+                               default=False, help='overwrite if exists')
+    client_parser.add_argument('-p', '--password', help='password for CA key')
+    client_parser.add_argument('-k', '--key',
+                               action='store_true',
+                               help='print generated key')
+    client_parser.add_argument('-c', '--cert',
+                               action='store_true',
+                               help='print generated cert')
+
+    # Server parser
+    server_parser = subparsers.add_parser('server',
+                                          help='generate server certificate')
+    server_parser.add_argument('-f', '--force', action='store_true',
+                               default=False, help='overwrite if exists')
+    server_parser.add_argument('fqdn', help='domain name of the server')
+    server_parser.add_argument('altname', nargs='*',
+                               help='alternative server name')
+    server_parser.add_argument('-p', '--password', help='password for CA key')
+    server_parser.add_argument('-k', '--key',
+                               action='store_true',
+                               help='print generated key')
+    server_parser.add_argument('-c', '--cert',
+                               action='store_true',
+                               help='print generated cert')
+
+    args = parser.parse_args()
+
+    basedir = os.getcwd() if args.dir is None else args.dir
+
+    if not os.path.isdir(basedir):
+        print("Error: directory doesn't exist: '%s'" % basedir)
+        sys.exit(1)
+
+    password = args.password
+
+    try:
+        if not is_openssl_functioning():
+            print("Error: The 'openssl' binary is not functioning correctly.")
+            print("       Call 'openssl version' to see what's wrong.")
+            sys.exit(1)
+
+        if args.command == 'ca':
+            keypath = os.path.join(basedir, 'ca.key')
+            certpath = os.path.join(basedir, 'ca.crt')
+            common_name = args.common_name
+
+            if not os.path.exists(keypath):
+                ca_key = generate_ca_private_key(password)
+                write_file(keypath, ca_key)
+            else:
+                ca_key = read_file(keypath)
+
+            if not os.path.exists(certpath):
+                if is_key_encrypted(ca_key) and not password:
+                    print('Error: CA key is encrypted, but no ' +
+                          'password is provided')
+                    sys.exit(1)
+                ca_cert = generate_ca_certificate(ca_key, password,
+                                                  common_name)
+                write_file(certpath, ca_cert)
+            else:
+                ca_cert = read_file(certpath)
+
+            if args.key:
+                print(ca_key)
+            if args.cert:
+                print(ca_cert)
+
+        elif args.command == 'client':
+            keypath = os.path.join(basedir, 'client.key')
+            certpath = os.path.join(basedir, 'client.crt')
+            ca_keypath = os.path.join(basedir, 'ca.key')
+            ca_certpath = os.path.join(basedir, 'ca.crt')
+
+            if not os.path.exists(ca_keypath):
+                print("Error: CA key doesn't exist")
+                sys.exit(1)
+            if not os.path.exists(ca_certpath):
+                print("Error: CA cert doesn't exist")
+                sys.exit(1)
+
+            if not os.path.exists(keypath):
+                client_key = generate_client_key()
+                write_file(keypath, client_key)
+            else:
+                client_key = read_file(keypath)
+
+            ca_cert = read_file(ca_certpath)
+            ca_key = read_file(ca_keypath)
+
+            if not os.path.exists(certpath):
+                if is_key_encrypted(ca_key) and not password:
+                    print('Error: CA key is encrypted, but no ' +
+                          'password is provided')
+                    sys.exit(1)
+                client_csr = generate_client_csr(client_key)
+                client_cert = sign_client_cert(ca_cert, ca_key,
+                                               password, client_csr)
+                write_file(certpath, client_cert)
+            else:
+                client_cert = read_file(certpath)
+
+            if args.key:
+                print(client_key)
+            if args.cert:
+                print(client_cert)
+
+        elif args.command == 'server':
+            fqdn = args.fqdn
+            altnames = []
+            # Puppet may pass altnames as a single argument
+            # with altnames separated by spaces. It happens because of
+            # deficiences in generate() that can't interpolate arrays.
+            # There is no harm from this workaround for general use cases,
+            # because hostnames can't contain spaces anyway.
+            for altname in args.altname:
+                altnames += altname.split(' ')
+
+            if not os.path.exists(os.path.join(basedir, 'servers')):
+                os.mkdir(os.path.join(basedir, 'servers'))
+            if not os.path.exists(os.path.join(basedir, 'servers', fqdn)):
+                os.mkdir(os.path.join(basedir, 'servers', fqdn))
+
+            keypath = os.path.join(basedir, 'servers', fqdn, 'server.key')
+            certpath = os.path.join(basedir, 'servers', fqdn, 'server.crt')
+            ca_keypath = os.path.join(basedir, 'ca.key')
+            ca_certpath = os.path.join(basedir, 'ca.crt')
+
+            if not os.path.exists(ca_keypath):
+                print("Error: CA key doesn't exist")
+                sys.exit(1)
+            if not os.path.exists(ca_certpath):
+                print("Error: CA cert doesn't exist")
+                sys.exit(1)
+
+            if not os.path.exists(keypath):
+                server_key = generate_server_key()
+                write_file(keypath, server_key)
+            else:
+                server_key = read_file(keypath)
+
+            ca_cert = read_file(ca_certpath)
+            ca_key = read_file(ca_keypath)
+
+            if not os.path.exists(certpath):
+                if is_key_encrypted(ca_key) and not password:
+                    print('Error: CA key is encrypted, but no ' +
+                          'password is provided')
+                    sys.exit(1)
+                server_csr = generate_server_csr(server_key, fqdn)
+                server_cert = sign_server_cert(ca_cert, ca_key,
+                                               password, server_csr,
+                                               altnames=altnames)
+                write_file(certpath, server_cert)
+            else:
+                server_cert = read_file(certpath)
+
+            if args.key:
+                print(server_key)
+            if args.cert:
+                print(server_cert)
+
+    except subprocess.CalledProcessError as ex:
+        err_str = ex.stderr.decode('utf-8')
+
+        print("Error: ", err_str)
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()
