@@ -1,4 +1,7 @@
 .kitchen
+setenv.sh
+ansible/inventory.cfg
+ansible/certs/*
 *.pyc
 *.xlog
 *.snap

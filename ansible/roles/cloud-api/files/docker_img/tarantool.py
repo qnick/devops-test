@@ -342,7 +342,7 @@ class Tarantool(group.Group):
             if not docker_addr:
                 raise RuntimeError("No such Docker host: '%s'" % docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = 'ls /var/lib/tarantool'
@@ -500,7 +500,7 @@ class Tarantool(group.Group):
                 if not docker_addr:
                     raise RuntimeError("No such Docker host: '%s'" % docker_host)
 
-                docker_obj = docker.Client(base_url=docker_addr,
+                docker_obj = docker.APIClient(base_url=docker_addr,
                                            tls=global_env.docker_tls_config)
 
                 if mem_used > blueprint['memsize']:
@@ -675,7 +675,7 @@ class Tarantool(group.Group):
                    host['consul_host'] == docker_host:
                     docker_addr = host['addr']
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_is_up"
@@ -726,7 +726,7 @@ class Tarantool(group.Group):
                     docker_addr = host['addr']
 
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_set_config.lua TARANTOOL_REPLICATION_SOURCE " + \
@@ -831,7 +831,7 @@ class Tarantool(group.Group):
         if not docker_addr:
             raise RuntimeError("No such Docker host: '%s'" % docker_host)
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         try:
@@ -913,7 +913,7 @@ class Tarantool(group.Group):
         if other_instance_num is not None:
             replica_ip = blueprint['instances'][other_instance_num]['addr']
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         self.ensure_image(docker_addr)
@@ -1006,7 +1006,7 @@ class Tarantool(group.Group):
         if instance_num == '2':
             replica_ip = blueprint['instances']['1']['addr']
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         self.ensure_image(docker_addr)
@@ -1102,7 +1102,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
             docker_obj.stop(container=instance_id)
             docker_obj.remove_container(container=instance_id)
@@ -1137,7 +1137,7 @@ class Tarantool(group.Group):
                          memsize,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_set_config.lua TARANTOOL_SLAB_ALLOC_ARENA " + \
@@ -1197,7 +1197,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             time_str = datetime.datetime.utcnow().isoformat()
@@ -1263,7 +1263,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_set_config.lua " + \
@@ -1308,7 +1308,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             try:
@@ -1356,7 +1356,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             try:
@@ -1397,7 +1397,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             try:
@@ -1438,7 +1438,7 @@ class Tarantool(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             status = docker_obj.put_archive(self.group_id + '_' + instance_num,
@@ -1461,7 +1461,7 @@ class Tarantool(group.Group):
 
     @classmethod
     def ensure_image(cls, docker_addr, force=False):
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
         image_exists = any(['tarantool-cloud-tarantool:latest' in (i['RepoTags'] or [])
                             for i in docker_obj.images()])
@@ -1491,7 +1491,7 @@ class Tarantool(group.Group):
                                  decoded_line['stream'])
 
     def ensure_network(self, docker_addr):
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         settings = Sense.network_settings()

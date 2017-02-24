@@ -330,7 +330,7 @@ class Memcached(group.Group):
             if not docker_addr:
                 raise RuntimeError("No such Docker host: '%s'" % docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = 'ls /var/lib/tarantool'
@@ -447,7 +447,7 @@ class Memcached(group.Group):
                 if not docker_addr:
                     raise RuntimeError("No such Docker host: '%s'" % docker_host)
 
-                docker_obj = docker.Client(base_url=docker_addr,
+                docker_obj = docker.APIClient(base_url=docker_addr,
                                            tls=global_env.docker_tls_config)
 
                 if mem_used > blueprint['memsize']:
@@ -574,7 +574,7 @@ class Memcached(group.Group):
                    host['consul_host'] == docker_host:
                     docker_addr = host['addr']
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_is_up"
@@ -625,7 +625,7 @@ class Memcached(group.Group):
                     docker_addr = host['addr']
 
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_set_config.lua TARANTOOL_REPLICATION_SOURCE " + \
@@ -730,7 +730,7 @@ class Memcached(group.Group):
         if not docker_addr:
             raise RuntimeError("No such Docker host: '%s'" % docker_host)
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         try:
@@ -813,7 +813,7 @@ class Memcached(group.Group):
         if other_instance_num is not None:
             replica_ip = blueprint['instances'][other_instance_num]['addr']
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         self.ensure_image(docker_addr)
@@ -827,12 +827,17 @@ class Memcached(group.Group):
                          " and replication source: '%s'",
                          instance_id, docker_obj.base_url, addr, replica_ip)
 
+        ports = [(11211,'tcp')]
+        port_bindings = {'11211/tcp': None}
+
         host_config = docker_obj.create_host_config(
             restart_policy =
             {
                 "MaximumRetryCount": 0,
                 "Name": "unless-stopped"
-            })
+            },
+            port_bindings = port_bindings
+        )
 
         cmd = 'tarantool /opt/tarantool/app.lua'
 
@@ -856,6 +861,9 @@ class Memcached(group.Group):
 
         environment['TARANTOOL_SLAB_ALLOC_ARENA'] = float(memsize)/1024
 
+        short_subnet = network_settings['subnet'].split('/')[1]
+        environment['WEAVE_CIDR'] = addr + '/' + short_subnet
+        environment['SERVICE_NAME'] = self.group_id
         if password:
             environment['MEMCACHED_PASSWORD'] = password
         if password_base64:
@@ -868,13 +876,14 @@ class Memcached(group.Group):
                                                 name=instance_id,
                                                 command=cmd,
                                                 host_config=host_config,
-                                                networking_config=networking_config,
+                                                ports=ports,
+#                                                networking_config=networking_config,
                                                 environment=environment,
                                                 labels=['tarantool'])
 
-        docker_obj.connect_container_to_network(container.get('Id'),
-                                                network_name,
-                                                ipv4_address=addr)
+#        docker_obj.connect_container_to_network(container.get('Id'),
+#                                                network_name,
+#                                                ipv4_address=addr)
         docker_obj.start(container=container.get('Id'))
 
     def upgrade_container(self, instance_num):
@@ -909,7 +918,7 @@ class Memcached(group.Group):
         if instance_num == '2':
             replica_ip = blueprint['instances']['1']['addr']
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         self.ensure_image(docker_addr)
@@ -932,13 +941,16 @@ class Memcached(group.Group):
         docker_obj.stop(container=instance_id)
         docker_obj.remove_container(container=instance_id)
 
+        ports = [(11211,'tcp')]
+        port_bindings = {'11211/tcp': None}
         host_config = docker_obj.create_host_config(
             restart_policy =
             {
                 "MaximumRetryCount": 0,
                 "Name": "unless-stopped"
             },
-            binds = binds
+            binds = binds,
+            port_bindings = port_bindings
         )
 
         cmd = 'tarantool /opt/tarantool/app.lua'
@@ -963,6 +975,9 @@ class Memcached(group.Group):
 
         environment['TARANTOOL_SLAB_ALLOC_ARENA'] = float(memsize)/1024
 
+        short_subnet = network_settings['subnet'].split('/')[1]
+        environment['WEAVE_CIDR'] = addr + '/' + short_subnet
+        environment['SERVICE_NAME'] = self.group_id
         if replica_ip:
             environment['TARANTOOL_REPLICATION_SOURCE'] = replica_ip + ':3301'
 
@@ -970,13 +985,14 @@ class Memcached(group.Group):
                                                 name=instance_id,
                                                 command=cmd,
                                                 host_config=host_config,
-                                                networking_config=networking_config,
+                                                ports=ports,
+#                                                networking_config=networking_config,
                                                 environment=environment,
                                                 labels=['tarantool'])
 
-        docker_obj.connect_container_to_network(container.get('Id'),
-                                                network_name,
-                                                ipv4_address=addr)
+#        docker_obj.connect_container_to_network(container.get('Id'),
+#                                                network_name,
+#                                                ipv4_address=addr)
         docker_obj.start(container=container.get('Id'))
 
     def remove_container(self, instance_num):
@@ -1005,7 +1021,7 @@ class Memcached(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
             docker_obj.stop(container=instance_id)
             docker_obj.remove_container(container=instance_id)
@@ -1040,7 +1056,7 @@ class Memcached(group.Group):
                          memsize,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_set_config.lua TARANTOOL_SLAB_ALLOC_ARENA " + \
@@ -1086,7 +1102,7 @@ class Memcached(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "memcached_set_password.lua " + password
@@ -1130,7 +1146,7 @@ class Memcached(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             try:
@@ -1151,7 +1167,7 @@ class Memcached(group.Group):
 
     @classmethod
     def ensure_image(cls, docker_addr, force=False):
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
         image_exists = any(['tarantool-cloud-memcached:latest' in (i['RepoTags'] or [])
                             for i in docker_obj.images()])
@@ -1181,7 +1197,7 @@ class Memcached(group.Group):
                                  decoded_line['stream'])
 
     def ensure_network(self, docker_addr):
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         settings = Sense.network_settings()

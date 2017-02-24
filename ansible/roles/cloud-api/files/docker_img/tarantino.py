@@ -250,7 +250,7 @@ class Tarantino(group.Group):
         if instance_num == '2':
             replica_ip = blueprint['instances']['1']['addr']
 
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         self.ensure_image(docker_addr)
@@ -355,7 +355,7 @@ class Tarantino(group.Group):
 
 
     def ensure_image(self, docker_addr):
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
         image_exists = any(['tarantool/tarantino:latest' in
                             (i['RepoTags'] or [])
@@ -374,7 +374,7 @@ class Tarantino(group.Group):
                              decoded_line['stream'])
 
     def ensure_network(self, docker_addr):
-        docker_obj = docker.Client(base_url=docker_addr,
+        docker_obj = docker.APIClient(base_url=docker_addr,
                                    tls=global_env.docker_tls_config)
 
         settings = Sense.network_settings()
@@ -434,7 +434,7 @@ class Tarantino(group.Group):
                          memsize,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             cmd = "tarantool_set_config.lua TARANTOOL_SLAB_ALLOC_ARENA " + \
@@ -480,7 +480,7 @@ class Tarantino(group.Group):
                          instance_id,
                          docker_host)
 
-            docker_obj = docker.Client(base_url=docker_addr,
+            docker_obj = docker.APIClient(base_url=docker_addr,
                                        tls=global_env.docker_tls_config)
 
             buf = io.BytesIO(tar_string('service.json', config_str))

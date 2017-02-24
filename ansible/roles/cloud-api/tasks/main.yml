@@ -1,0 +1,38 @@
+---
+- name: copy docker images to nodes
+  copy:
+    src: docker_img/
+    dest: /tmp/cloud_api
+  register: img_out
+
+- name: get weave subnet
+  shell: "weave status | grep DefaultSubnet | awk '{print $2}'"
+  register: weave_status
+
+- set_fact:
+    weave_ip_range: '{{ weave_status.stdout | replace("\n", "") }}'
+    
+
+- name: copy config.yml
+  template:
+    src: config.yml.j2
+    dest: /tmp/cloud_api/config/config.yml
+  register: config_out
+
+- name: build docker image
+  docker_image:
+    path: /tmp/cloud_api
+    name: cloud_api
+    push: no
+    force: yes
+  when: config_out.changed or img_out.changed
+
+- name: run cloud_api container
+  docker_container:
+    docker_host: 'unix:///var/run/weave/weave.sock'
+    name: cloud_api
+    image: cloud_api
+    ports:
+    - "5060:5060"
+    volumes:
+    - "/etc/tarantool-cloud/tls/docker:/tls:ro"

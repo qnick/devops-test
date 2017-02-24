@@ -21,6 +21,11 @@
 
 - hosts: cloud-node
   roles:
+    - weave
+
+- hosts: cloud-node
+  roles:
     - consul
     - registrator
-#    - prometheus-exporter
+    - cloud-api
+##    - prometheus-exporter

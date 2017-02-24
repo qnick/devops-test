@@ -1,0 +1,6 @@
+PEERS="{% for ip in cluster_ips %}
+{{ ip }}
+{%- if not loop.last %} {% endif %}
+{% endfor %}"
+IP=0.0.0.0
+PORT=9999

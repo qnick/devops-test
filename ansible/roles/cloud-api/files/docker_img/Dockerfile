@@ -16,7 +16,7 @@ RUN set -x \
     && pip3 install \
         tarantool \
         ipaddress \
-        docker-py \
+        docker \
         python-consul \
         python-dateutil \
         gevent flask \
@@ -33,8 +33,7 @@ RUN set -x \
 COPY *.py /im/
 COPY templates/ /im/templates/
 COPY docker/ /im/docker/
-
-VOLUME /im/config
+COPY config/ /im/config/
 WORKDIR /im
 
-CMD ["python3", "/im/srv.py"]
+CMD ["python3", "/im/srv.py", "-c", "/im/config/config.yml"]

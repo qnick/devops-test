@@ -55,18 +55,6 @@
   notify:
     - "{{ consul_restart_handler }}"
 
-
-- name: creates acl token for consul servers
-  consul_acl:
-    mgmt_token: '{{consul_acl_master_token}}'
-    name: 'Consul agent access token'
-    token: '{{consul_acl_token}}'
-    rules:
-      - service: ''
-        policy: write
-      - key: ''
-        policy: write
-
 - name: allow access to consul RPC from the cluster
   iptables:
     chain: INPUT
@@ -130,3 +118,43 @@
     destination_port: 8302
     jump: ACCEPT
   with_items: '{{cluster_ips}}'
+
+- name: start consul service if not running
+  service:
+    name: consul
+    state: started
+  register: consul_started
+
+- name: wait some time for consul election
+  local_action: command sleep 15
+  when: consul_started.changed
+
+- name: creates acl token for consul servers
+  consul_acl:
+    mgmt_token: '{{consul_acl_master_token}}'
+    name: 'Consul agent access token'
+    token: '{{consul_acl_token}}'
+    rules:
+      - service: ''
+        policy: write
+      - key: ''
+        policy: write
+
+- set_fact:
+    advertise_addr: '{{hostvars[inventory_hostname]["ansible_"+advertise_interface.replace("-","_")]["ipv4"]["address"]}}'
+  when: advertise_interface is defined
+
+- set_fact:
+    advertise_addr: '{{ ansible_default_ipv4["address"] }}'
+  when: advertise_interface is not defined
+
+- name: register docker service in the consul cluster
+  consul:
+    service_name: 'docker'
+    service_address: '{{advertise_addr}}'
+    service_port: '9999'
+    token: '{{consul_acl_token}}'
+    state: present
+    tags:
+    - 'lb_group=primary'
+    - 'im'

@@ -10,95 +10,95 @@ It provides the following key features:
 
 Read more on the wiki: [Documentation](https://github.com/tarantool/cloud/wiki)
 
+## Requirements
+
+At least two virtual or physical machines with ubuntu 16 and python 2.7 installed
+Each box should be accessible via ssh
+
+Ansible 2.1 or greater on the host box
+
 ## Getting Started
 
-To prepare an environment, do:
+- To prepare an environment, do:
 
 ```sh
-docker-compose up
+cp setenv.sh.tpl setenv.sh
+```
+- Then edit file setenv.sh, fill it with ip addresses of your boxes, credentials and some secure stuff.
+Tokens can be generated with 'uuidgen -r', key can be generated with 'openssl rand 16 | base64'.
+
+- Now you can generate inventory file for ansible
+```sh
+./create_inventory.sh > ansible/inventory.cfg
 ```
 
-Then go to [http://localhost:5061](http://localhost:5061) to access web UI.
+- And run ansible-playbook
+```sh
+cd ansible
+ansible-playbook -i inventory.cfg site.yml
+```
 
-*Note*: first-time creation and launch of tarantool instances may take a long time, as the instance manager is building docker images.
+- Wait about 30 minutes until ansible-playbook is stopped.
 
-## Managing Tarantool instances via command-line client
-
-### Create new instance:
+- And your cluster is ready, you can now create tarantool-memcached instances:
 
 ```sh
-./taas -H localhost:5061 run --name myinstance 0.3
+./taas -H $HOST1_IP:5060 -v run --name=test1 --memsize=100
 ```
+*Note*: first-time creation and launch of tarantool instances may take a very long time, as the instance manager is building docker images.
 
-This will create an instance named `myinstance`, with 0.3 GiB memory limit and return its ID.
-
-### List instances:
-
+- List all instances with command:
 ```sh
-./taas -H localhost:5061 ps
+./taas -H $HOST1_IP:5060  ps
 ```
 
-It will produce output like this:
-
+- Remove instance:
 ```sh
-GROUP                             INSTANCE #     NAME        TYPE       SIZE     STATE     ADDRESS       NODE
-37c82b4a32344b0cae1143b5d017b204  2              myinstance  memcached  0.3      Down      172.55.128.3  docker1
-37c82b4a32344b0cae1143b5d017b204  1              myinstance  memcached  0.3      Down      172.55.128.2  docker1
+./taas -H $HOST1_IP:5060  rm $INSTANCE_ID
 ```
+You can use either '$HOST2_IP', the result will be the same.
 
-### Inspect an instance
+## Health checking
 
-This is a command that shows low-level details about an instance. Make sure to put your own instance ID instead of `37c82b4a32344b0cae1143b5d017b204`
+For health checking you can use consul web interface http://HOST1_IP:8500 or cloud_api web interface http://$HOST1_IP:5060 on any host
 
+
+## Connecting to instances
+
+- First you should get correct port numbers:
 ```sh
-./taas -H localhost:5061 inspect 37c82b4a32344b0cae1143b5d017b204
+./getports.sh $INSTANCE_ID
 ```
 
-Will show output like this:
-
-``` bash
-[
-  {
-    "id": "37c82b4a32344b0cae1143b5d017b204",
-    "creation_time": "2016-08-16T13:30:24.827509+00:00",
-    "name": "myinstance",
-    "type": "memcached",
-    "memsize": 0.3,
-    "instances": [
-      ...
-    ],
-    ...
-  }
-]
-```
-
-### Remove an instance
-
-Make sure to put your own instance ID instead of `37c82b4a32344b0cae1143b5d017b204`
-
+- You should get answer looking like this:
 ```sh
-./taas -H localhost:5061 rm 37c82b4a32344b0cae1143b5d017b204
+192.168.124.179 32768
+192.168.124.25 32768
 ```
+Of course ip addresses and port numbers shouldn't be the same.
 
-On success, returns nothing.
-
-### Rename/Resize an instance
-
-Make sure to put your own instance ID instead of `37c82b4a32344b0cae1143b5d017b204`
-
-``` bash
-./taas -H localhost:5061 update --memsize 1.2 --name newname 37c82b4a32344b0cae1143b5d017b204
-```
-
-This will set memory limit to 1.2 GiB and rename instance to 'newname'.
-
-## Creating Tarantool instances via REST API
-
+- Then you can send something to the first address
 ```sh
-curl -X POST -F 'name=myinstance' -F 'memsize=0.2' localhost:5061/api/groups
+$ printf "set key 0 60 5\r\nvalue\r\n" | nc 192.168.124.179 32768
+STORED
 ```
 
-This will create an instance named `myinstance`, with 0.2 GiB memory limit.
+- And get it from the second:
+```sh
+$ printf "get key\r\n" | nc 192.168.124.25 32768
+VALUE key 0 5
+value
+END
+```
+
+## Add new node to the cluster
+
+- Edit ansible/inventory.cfg and uncomment line with 'node3'.
+- Run ansible-playbook again
+```sh
+cd ansible
+ansible-playbook -i inventory.cfg site.yml
+```
 
 ## License
 

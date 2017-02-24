@@ -1,0 +1,14 @@
+CONSUL_HOST: {{advertise_addr}}
+LISTEN_PORT: 5060
+DOCKER_CLIENT_KEY: /tls/key.pem
+DOCKER_CLIENT_CERT: /tls/cert.pem
+DOCKER_SERVER_CERT: /tls/ca.pem
+CONSUL_ACL_TOKEN: {{consul_acl_token}}
+IPALLOC_RANGE: 10.2.1.0/24
+DOCKER_NETWORK: weave
+CREATE_NETWORK_AUTOMATICALLY: false
+#HTTP_BASIC_USERNAME: admin
+#HTTP_BASIC_PASSWORD: ilikerandompasswords
+#BACKUP_DIR: /tmp/backups
+#SSL_CERTFILE: cert.pem
+#SSL_KEYFILE: key.pem

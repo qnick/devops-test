@@ -1,0 +1,9 @@
+---
+- name: daemon-reload
+  command: 'systemctl daemon-reload'
+
+- name: restart weave
+  service:
+    name: weave
+    state: restarted
+    enabled: yes

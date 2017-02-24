@@ -1,0 +1,16 @@
+[Unit]
+Description=Weave Network
+Documentation=http://docs.weave.works/weave/latest_release/
+Requires=docker.service
+After=docker.service
+[Service]
+EnvironmentFile=-/etc/default/weave
+ExecStartPre=/usr/local/bin/weave launch-router --no-restart $PEERS
+ExecStartPre=/usr/local/bin/weave launch-proxy -H tcp://0.0.0.0:9999 -H unix:///var/run/weave/weave.sock 
+ExecStartPre=/usr/local/bin/weave launch-plugin --no-restart
+ExecStart=/usr/bin/docker attach weave
+ExecStop=/usr/local/bin/weave stop-plugin
+ExecStop=/usr/local/bin/weave stop-proxy
+ExecStop=/usr/local/bin/weave stop-router
+[Install]
+WantedBy=multi-user.target
