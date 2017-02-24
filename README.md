@@ -24,8 +24,16 @@ Ansible 2.1 or greater on the host box
 ```sh
 cp setenv.sh.tpl setenv.sh
 ```
-- Then edit file setenv.sh, fill it with ip addresses of your boxes, credentials and some secure stuff.
-Tokens can be generated with 'uuidgen -r', key can be generated with 'openssl rand 16 | base64'.
+- Then edit file setenv.sh, fill it up with ip addresses of your boxes, credentials and some secure stuff.
+
+Tokens can be generated with:
+```sh
+uuidgen -r
+```
+Key can be generated with:
+```sh
+openssl rand 16 | base64
+```
 
 - Now you can generate inventory file for ansible
 ```sh
@@ -60,7 +68,7 @@ You can use either '$HOST2_IP', the result will be the same.
 
 ## Health checking
 
-For health checking you can use consul web interface http://HOST1_IP:8500 or cloud_api web interface http://$HOST1_IP:5060 on any host
+For health checking you can use consul web interface http://HOST_IP:8500 or cloud_api web interface http://$HOST_IP:5060 on any host
 
 
 ## Connecting to instances
@@ -75,7 +83,7 @@ For health checking you can use consul web interface http://HOST1_IP:8500 or clo
 192.168.124.179 32768
 192.168.124.25 32768
 ```
-Of course ip addresses and port numbers shouldn't be the same.
+Ip addresses and port numbers shouldn't be the same.
 
 - Then you can send something to the first address
 ```sh
