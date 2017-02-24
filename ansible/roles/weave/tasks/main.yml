@@ -1,0 +1,45 @@
+---
+- name: get Weave
+  get_url:
+    url: http://git.io/weave
+    dest: /usr/local/bin/weave
+    mode: 0755
+    setype: unconfined_exec_ta
+
+- set_fact:
+    cluster_ips: '{{ ansible_play_batch | map("extract", hostvars, ["ansible_default_ipv4", "address"]) | list }}'
+
+
+- name: add firewall rule for weave control port
+  iptables:
+    chain: INPUT
+    source: "{{item}}"
+    protocol: tcp
+    destination_port: 6783
+    jump: ACCEPT
+  with_items: '{{cluster_ips}}'
+
+- name: add firewall rule for weave data port
+  iptables:
+    chain: INPUT
+    source: "{{item}}"
+    protocol: udp
+    destination_port: 6783:6784
+    jump: ACCEPT
+  with_items: '{{cluster_ips}}'
+
+
+- name: copy weave config
+  template:
+    src: weave.conf.j2
+    dest: /etc/default/weave
+  notify:
+  - restart weave
+
+- name: copy systemd unit file
+  template:
+    src: weave.service.j2
+    dest: /etc/systemd/system/weave.service
+  notify:
+  - daemon-reload
+  - restart weave

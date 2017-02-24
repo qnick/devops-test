@@ -64,7 +64,7 @@ class Sense(object):
             if all([s == 'passing' for s in statuses]) and \
                docker_host_status == 'passing':
 
-                docker_obj = docker.Client(base_url=addr,
+                docker_obj = docker.APIClient(base_url=addr,
                                            tls=global_env.docker_tls_config,
                                            timeout=DOCKER_API_TIMEOUT)
                 containers[entry['Node']['Address']] = \
@@ -436,7 +436,7 @@ class Sense(object):
 
                     if all([s == 'passing' for s in statuses]):
 
-                        docker_obj = docker.Client(
+                        docker_obj = docker.APIClient(
                             base_url=addr,
                             tls=global_env.docker_tls_config,
                             timeout=DOCKER_API_TIMEOUT)

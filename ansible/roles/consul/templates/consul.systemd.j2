@@ -7,7 +7,7 @@ After=network-online.target
 Environment="GOMAXPROCS=`nproc`"
 Environment="DOCKER_CERT_PATH=/etc/tarantool-cloud/tls/docker"
 Environment="DOCKER_TLS_VERIFY=1"
-Environment="DOCKER_HOST=tcp://{{ ansible_default_ipv4["address"] }}:2376"
+Environment="DOCKER_HOST=tcp://{{ ansible_default_ipv4["address"] }}:9999"
 Restart=on-failure
 User={{ consul_user }}
 Group={{ consul_group }}

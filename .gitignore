@@ -1,4 +1,6 @@
 .kitchen
+setenv.sh
+ansible/inventory.cfg
 *.pyc
 *.xlog
 *.snap
